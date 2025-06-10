@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from statsmodels.tsa.arima.model import ARIMA
+
 
 st.set_page_config(
     page_title="Trend Analysis - Memecoin Mania",
@@ -22,10 +24,20 @@ def load_price_data():
 def load_sentiment_data():
     twitter = pd.read_csv('data/memecoin_sentiment_results_twitter.csv')
     reddit = pd.read_csv('data/memecoins_sentiments_results_reddit.xls')
+
     twitter['date'] = pd.to_datetime(twitter['date'])
     reddit['date'] = pd.to_datetime(reddit['date'])
-    twitter.columns = [col.replace(' ', '_') for col in twitter.columns]
-    reddit.columns = [col.replace(' ', '_') for col in reddit.columns]
+
+    twitter.columns = twitter.columns.str.strip().str.lower().str.replace(' ', '_')
+    reddit.columns = reddit.columns.str.strip().str.lower().str.replace(' ', '_')
+
+    mention_cols = [col for col in twitter.columns if col.startswith('mentions_')]
+    for col in mention_cols:
+        twitter[col] = twitter[col].astype(int)
+    mention_cols = [col for col in reddit.columns if col.startswith('mentions_')]
+    for col in mention_cols:
+        reddit[col] = reddit[col].astype(int)
+
     return twitter, reddit
 
 
@@ -41,10 +53,23 @@ def process_sentiment(df, platform):
                 'neutral_score': 'mean',
                 'negative_score': 'mean'
             }).reset_index()
-            daily['coin'] = coin.capitalize()
+            daily['coin'] = coin.lower()
             daily['platform'] = platform
-            sentiments[coin] = daily
+            sentiments[coin.lower()] = daily
     return sentiments
+
+def forecast_arima_series(series, steps=30):
+    try:
+        series = series.ffill().bfill().astype(float)
+        model = ARIMA(series, order=(1, 0, 3))
+        model_fit = model.fit()
+        forecast = model_fit.forecast(steps=steps)
+        return forecast, model_fit
+    except Exception as e:
+        st.error(f"ARIMA error: {e}")
+        return None, None
+
+
 
 # ----- Sidebar -----
 col_names = {
@@ -52,6 +77,13 @@ col_names = {
     'high': 'High',
     'low': 'Low',
     'avg_price': 'Average'
+}
+
+ticker_to_name = {
+    'DOGE': 'dogecoin',
+    'SHIB': 'shiba_inu',
+    'PEPE': 'pepe',
+    'FLOKI': 'floki'
 }
 
 st.sidebar.title("🛠️ Customize View")
@@ -68,7 +100,11 @@ mention_coin = st.sidebar.selectbox(
     format_func=lambda x: x.title()
 )
 
+st.sidebar.markdown("### Correlation Analysis")
+ticker = st.sidebar.selectbox("Select Coin to Correlate", ticker_to_name.keys(), key='correlation_coin')
 
+
+# ----- Load Data -----
 price_df = load_price_data()
 twitter_df, reddit_df = load_sentiment_data()
 
@@ -94,6 +130,7 @@ def get_combined_sentiment(source):
 
 selected_sentiments = get_combined_sentiment(sentiment_source)
 
+
 colors = {
     'dogecoin': 'blue',
     'shiba_inu': 'green',
@@ -101,6 +138,13 @@ colors = {
     'floki': 'magenta',
     'bonk': 'cyan',
     'wojak': 'purple'
+}
+
+ticker_to_name = {
+    'DOGE': 'dogecoin',
+    'SHIB': 'shiba_inu',
+    'PEPE': 'pepe',
+    'FLOKI': 'floki'
 }
 
 # ----- Main Dashboard -----
@@ -127,6 +171,7 @@ price_fig.update_layout(
 )
 st.plotly_chart(price_fig, use_container_width=True)
 
+
 # ----- Combined Price Trend -----
 combined_df = price_df.groupby('date').mean(numeric_only=True).reset_index()
 
@@ -144,6 +189,7 @@ fig_all_prices.update_layout(
     hovermode="x unified"
 )
 st.plotly_chart(fig_all_prices, use_container_width=True)
+
 
 # ----- Sentiment Score Over Time -----
 st.markdown("## 😊 Sentiment Score Over Time")
@@ -190,3 +236,73 @@ fig_mentions.update_layout(
     hovermode="x unified"
 )
 st.plotly_chart(fig_mentions, use_container_width=True)
+
+st.markdown("## 🔄 Correlation: Price vs Sentiment (with Forecast)")
+
+coin_name = ticker_to_name[ticker]
+sentiment_df = selected_sentiments.get(coin_name)
+
+price_coin_df = price_df[price_df['type'].str.upper() == ticker]
+
+if sentiment_df is not None and not price_coin_df.empty:
+    # Prepare price series
+    price_df_daily = price_coin_df.groupby('date')['avg_price'].mean().reset_index()
+    price_df_daily.set_index('date', inplace=True)
+    price_series = price_df_daily['avg_price']
+
+    # Prepare sentiment series
+    sentiment_df = sentiment_df.copy()
+    sentiment_df.set_index('date', inplace=True)
+    sentiment_series = sentiment_df['compound_score']
+
+    # Forecast both if enough data
+    price_forecast, _ = forecast_arima_series(price_series, steps=90) if len(price_series) >= 50 else (None, None)
+    sentiment_forecast, _ = forecast_arima_series(sentiment_series, steps=90) if len(sentiment_series) >= 50 else (None, None)
+
+    fig_corr_forecast = go.Figure()
+
+    # Historical price
+    fig_corr_forecast.add_trace(go.Scatter(
+        x=price_series.index, y=price_series,
+        name='Avg Price (USD)', yaxis='y1', line=dict(color='blue')
+    ))
+
+    # Historical sentiment
+    fig_corr_forecast.add_trace(go.Scatter(
+        x=sentiment_series.index, y=sentiment_series,
+        name='Sentiment Score', yaxis='y2', line=dict(color='orange')
+    ))
+
+    # Forecasted price
+    if price_forecast is not None:
+        future_price_dates = pd.date_range(start=price_series.index.max() + pd.Timedelta(days=1), periods=len(price_forecast), freq='D')
+        fig_corr_forecast.add_trace(go.Scatter(
+            x=future_price_dates, y=price_forecast,
+            name='Price Forecast (ARIMA)', yaxis='y1',
+            line=dict(color='blue', dash='dot')
+        ))
+
+    # Forecasted sentiment
+    if sentiment_forecast is not None:
+        future_sentiment_dates = pd.date_range(start=sentiment_series.index.max() + pd.Timedelta(days=1), periods=len(sentiment_forecast), freq='D')
+        fig_corr_forecast.add_trace(go.Scatter(
+            x=future_sentiment_dates, y=sentiment_forecast,
+            name='Sentiment Forecast (ARIMA)', yaxis='y2',
+            line=dict(color='orange', dash='dot')
+        ))
+
+    fig_corr_forecast.update_layout(
+        title=f"📉 Price vs Sentiment Over Time for {coin_name.title()} (with Forecasts)",
+        xaxis=dict(title='Date'),
+        yaxis=dict(title='Price (USD)', side='left'),
+        yaxis2=dict(title='Sentiment Score', overlaying='y', side='right'),
+        legend=dict(x=0.01, y=0.99),
+        template='plotly_white',
+        hovermode='x unified'
+    )
+
+    st.plotly_chart(fig_corr_forecast, use_container_width=True)
+
+else:
+    st.warning("Sentiment or price data not available for selected coin.")
+
