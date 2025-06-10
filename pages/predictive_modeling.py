@@ -396,64 +396,64 @@ def load_svr_model_scalers(df, target, coin):
     }
 
 
-def train_random_forest_model(df, target):
-    """Train Random Forest model with GridSearchCV"""
-    X = df[['compound_score']].values
-    y = df[target].values
+# def train_random_forest_model(df, target):
+#     """Train Random Forest model with GridSearchCV"""
+#     X = df[['compound_score']].values
+#     y = df[target].values
 
-    scaler_X = StandardScaler()
-    X_scaled = scaler_X.fit_transform(X)
+#     scaler_X = StandardScaler()
+#     X_scaled = scaler_X.fit_transform(X)
 
-    # Train/test split (non-shuffled for time series)
-    split_idx = int(len(X_scaled) * 0.8)
-    X_train, X_test = X_scaled[:split_idx], X_scaled[split_idx:]
-    y_train, y_test = y[:split_idx], y[split_idx:]
+#     # Train/test split (non-shuffled for time series)
+#     split_idx = int(len(X_scaled) * 0.8)
+#     X_train, X_test = X_scaled[:split_idx], X_scaled[split_idx:]
+#     y_train, y_test = y[:split_idx], y[split_idx:]
 
-    param_grid = {
-        "n_estimators": [50, 100, 200],
-        "max_depth": [None, 5, 10],
-        "min_samples_split": [2, 5],
-        "min_samples_leaf": [1, 2]
-    }
+#     param_grid = {
+#         "n_estimators": [50, 100, 200],
+#         "max_depth": [None, 5, 10],
+#         "min_samples_split": [2, 5],
+#         "min_samples_leaf": [1, 2]
+#     }
     
-    grid_search = GridSearchCV(RandomForestRegressor(random_state=42), param_grid, cv=5)
-    grid_search.fit(X_train, y_train)
+#     grid_search = GridSearchCV(RandomForestRegressor(random_state=42), param_grid, cv=5)
+#     grid_search.fit(X_train, y_train)
 
-    # Predictions
-    y_pred = grid_search.predict(X_test)
-    y_full_pred = grid_search.predict(X_scaled)
+#     # Predictions
+#     y_pred = grid_search.predict(X_test)
+#     y_full_pred = grid_search.predict(X_scaled)
 
-    last_date = pd.to_datetime(df['Date'].max())
-    today = pd.to_datetime(datetime.today().date())  # Now this works
-    num_days = (today - last_date).days
+#     last_date = pd.to_datetime(df['Date'].max())
+#     today = pd.to_datetime(datetime.today().date())  # Now this works
+#     num_days = (today - last_date).days
 
-    if num_days <= 0:
-        print("No prediction needed — data is already up to date.")
-    else:
-        # Generate future dates
-        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=num_days)
+#     if num_days <= 0:
+#         print("No prediction needed — data is already up to date.")
+#     else:
+#         # Generate future dates
+#         future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=num_days)
 
-    # # Future forecast
-    future_scores = np.linspace(-1, 1, num_days).reshape(-1, 1)
-    future_scaled = scaler_X.transform(future_scores)
-    future_pred = grid_search.predict(future_scaled)
+#     # # Future forecast
+#     future_scores = np.linspace(-1, 1, num_days).reshape(-1, 1)
+#     future_scaled = scaler_X.transform(future_scores)
+#     future_pred = grid_search.predict(future_scaled)
 
-    return {
-        "model": grid_search.best_estimator_,
-        "mse": mean_squared_error(y_test, y_pred),
-        "r2": r2_score(y_test, y_pred),
-        "mae": mean_absolute_error(y_test, y_pred),
-        "predictions": y_pred,
-        "actuals": y_test,
-        "future_forecast": future_pred,
-        "best_params": grid_search.best_params_,
-        "full_predictions": y_full_pred,
-        "full_actuals": y,
-        "dates": df['Date'].values,
-        "test_dates": df['Date'].iloc[split_idx:].values
-    }
+#     return {
+#         "model": grid_search.best_estimator_,
+#         "mse": mean_squared_error(y_test, y_pred),
+#         "r2": r2_score(y_test, y_pred),
+#         "mae": mean_absolute_error(y_test, y_pred),
+#         "predictions": y_pred,
+#         "actuals": y_test,
+#         "future_forecast": future_pred,
+#         "best_params": grid_search.best_params_,
+#         "full_predictions": y_full_pred,
+#         "full_actuals": y,
+#         "dates": df['Date'].values,
+#         "test_dates": df['Date'].iloc[split_idx:].values
+#     }
 
-def train_svr_model(df, target):
+# def train_svr_model(df, target):
     """Train SVR model with GridSearchCV"""
     X = df[['compound_score']].values
     y = df[target].values
@@ -849,9 +849,9 @@ def main():
                 rf_mse = results_rf[coin][target_price]['mse']
                 st.markdown(f"""
                 <div class="metric-card">
-                    <h4>🌲 Random Forest</h4>
-                    <p>R² Score: {rf_r2:.4f}</p>
-                    <p>MSE: {rf_mse:.6f}</p>
+                    <h4>🌲Random Forest</h4>
+                    <p>R² Score: {rf_r2:.8f}</p>
+                    <p>MSE: {rf_mse:.12f}</p>
                 </div>
                 """, unsafe_allow_html=True)
             
@@ -861,8 +861,8 @@ def main():
                 st.markdown(f"""
                 <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                     <h4>🎯 SVR</h4>
-                    <p>R² Score: {svr_r2:.4f}</p>
-                    <p>MSE: {svr_mse:.6f}</p>
+                    <p>R² Score: {svr_r2:.8f}</p>
+                    <p>MSE: {svr_mse:.12f}</p>
                 </div>
                 """, unsafe_allow_html=True)
     
@@ -893,6 +893,8 @@ def main():
                 st.plotly_chart(pred_fig, use_container_width=True)
             else:
                 st.info("Select both Random Forest and SVR models to see comparison plots.")
+
+                
         
         with tab2:
             corr_fig = create_sentiment_price_correlation(datasets[coin], coin)
